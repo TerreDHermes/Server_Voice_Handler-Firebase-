@@ -1,0 +1,86 @@
+import speech_recognition as sr
+from pydub import AudioSegment
+import subprocess
+
+# Добавьте функцию конвертации 3gp в WAV
+def convert_3gp_to_wav(input_path, output_path):
+    try:
+        # Выполняем команду FFmpeg для конвертации 3gp в WAV
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", output_path],
+            check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Ошибка при конвертации: {e}")
+        return None
+
+    # Используем PyDub для загрузки и обработки WAV
+    audio = AudioSegment.from_wav(output_path)
+    return audio
+
+
+def transcribe_and_save_audio(bucket, audio_object, text_folder, audio_folder):
+    # Проверяем наличие директории /tmpttttttttttttttttttttttt/ и создаем ее, если она не существует
+    if not os.path.exists("/tmp/"):
+        os.makedirs("/tmp/")
+
+    # Скачиваем аудиофайл во временное местоположение
+    temp_3gp_path = "/tmp/temp_audio.3gp"
+    audio_object.download_to_filename(temp_3gp_path)
+
+    # Определите временный путь для файла WAV
+    temp_wav_path = "/tmp/temp_audio.wav"
+
+    # Конвертируем 3GP в WAV
+    convert_3gp_to_wav(temp_3gp_path, temp_wav_path)
+
+    # Инициализируем объект Recognizer
+    recognizer = sr.Recognizer()
+
+
+    # Открываем аудиофайл и преобразуем его в текст
+    with sr.AudioFile(temp_wav_path) as source:
+        audio = recognizer.record(source)  # Запись аудио
+
+    try:
+        # Используем библиотеку SpeechRecognition для распознавания текста
+        text = recognizer.recognize_google(audio, language="ru-RU")
+        print(text)
+        # Определите новый путь для сохранения файла в формате .txt
+        new_path = text_folder + audio_object.name[len(audio_folder):] + ".txt"
+
+        # Создайте новый объект Blob и сохраните текст в нем
+        blob = bucket.blob(new_path)
+        text = text.encode("utf-8")
+        with open("/tmp/temp_audio.txt", 'wb') as f:
+            f.write(text)
+        blob.upload_from_string(text)
+    except sr.UnknownValueError:
+        print("Речь не распознана")
+    except sr.RequestError as e:
+        print(f"Произошла ошибка при запросе к сервису распознавания речи: {e}")
+
+
+def move_audio_to_text(bucket, root_folder):
+    # Определите пути к папкам "audio" и "text" для текущей корневой папки
+    audio_folder = root_folder + '/audio/'
+    text_folder = root_folder + '/text/'
+
+    # Получите список всех объектов в папке "audio" текущей корневой папки
+    audio_objects = bucket.list_blobs(prefix=audio_folder)
+
+    # Переносим каждый объект из папки "audio" в папку "text"
+    for audio_object in audio_objects:
+        if audio_object.name.lower().endswith('.3gp'):
+            print(audio_object.name)
+            transcribe_and_save_audio(bucket, audio_object, text_folder, audio_folder)
+        # Определите новый путь для файла в папке "text" с сохранением оригинального имени файла
+        #new_path = text_folder + audio_object.name[len(audio_folder):]
+
+        # Создайте новый объект Blob для копии файла
+        #blob = bucket.blob(new_path)
+
+        # Скопируйте содержимое файла из папки "audio" в папку "text"
+        #blob.upload_from_string(audio_object.download_as_string())
+
+        # Удалите исходный файл из папки "audio"
+        #audio_object.delete()
